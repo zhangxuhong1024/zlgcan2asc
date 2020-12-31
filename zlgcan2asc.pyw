@@ -14,7 +14,7 @@ import chardet
 import threading
 
 __author__  = "ZhangXuhong1024 <zhangxuhong1024@qq.com>"
-__version__ = "V1.0.0"
+__version__ = "V1.0.1"
 
 
 def GetEncoding(file_path):
@@ -240,11 +240,16 @@ class ConverterThread(threading.Thread):
         for f in self.file:
             try:
                 zlg = zlgFile(f)
-                zlg.GetMessage()
+                if zlg.GetMessage() == None:
+                    raise Exception("数据读不了")
                 zlg.Stop()
                 conv_file_list.append((f,zlg.lastIndex))
             except Exception:
                 self.win.AddLog ("    文件有误: {}\n".format(os.path.basename(f)))
+        if len(conv_file_list) == 0:
+            self.win.AddLog ("1-检测完成,没有数据文件需要被转换的!\n\n".format(len(self.file)))
+            self.win.FinishConverter()
+            return
         if self.opt_onefile:
             conv_file_list.sort(key=lambda x:x[1])
         self.file = [i[0] for i in conv_file_list]
