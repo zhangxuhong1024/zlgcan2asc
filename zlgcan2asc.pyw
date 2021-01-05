@@ -200,17 +200,17 @@ class MyFileDropTarget(wx.FileDropTarget):#声明释放到的目标
         self.win = window
         self.filelist = []
     def OnDropFiles(self, x, y, filenames):#释放文件处理函数数据
-        self.win.AddLog("{}个文件被拖放到此处:\n".format(len(filenames), x, y))
+        self.win.Log("{}个文件被拖放到此处:\n".format(len(filenames), x, y))
         for f in filenames:
             if f not in self.filelist:
                 if os.path.isfile(f) and re.match(r"(^.+\.csv$)|(^.+\.txt$)|(^.+\.CSV$)|(^.+\.TXT$)",f):
-                    self.win.AddLog("  新添加: {}\n".format(f))
+                    self.win.Log("  新添加: {}\n".format(f))
                     self.filelist.append(f)
                 else:
-                    self.win.AddLog("  已忽略: {}\n".format(f))
+                    self.win.Log("  已忽略: {}\n".format(f))
             else:
-                self.win.AddLog("  已存在: {}\n".format(f))
-        self.win.AddLog("\n")
+                self.win.Log("  已存在: {}\n".format(f))
+        self.win.Log("\n")
         return True
 
 class ConverterThread(threading.Thread):
@@ -229,12 +229,12 @@ class ConverterThread(threading.Thread):
         time_start = now()
         conv_file_list = []
         #检查文件是否正确读取,并确定转换文件的先后顺序.
-        self.win.AddLog ("1-检测文件是否正确...\n")
+        self.win.Log ("1-检测文件是否正确...\n")
         for f in self.file:
             if self.outDir != os.path.dirname(f):
                 s = "    不允许存在多个目录的数据,请重新选择数据文件!\n"
-                self.win.AddLog (s)
-                self.win.AddLog ("1-检测发现异常,退出转换!\n\n")
+                self.win.Log (s)
+                self.win.Log ("1-检测发现异常,退出转换!\n\n")
                 self.win.FinishConverter()
                 return
         for f in self.file:
@@ -245,9 +245,9 @@ class ConverterThread(threading.Thread):
                 zlg.Stop()
                 conv_file_list.append((f,zlg.lastIndex))
             except Exception:
-                self.win.AddLog ("    文件有误: {}\n".format(os.path.basename(f)))
+                self.win.Log ("    文件有误: {}\n".format(os.path.basename(f)))
         if len(conv_file_list) == 0:
-            self.win.AddLog ("1-检测完成,没有数据文件需要被转换的!\n\n".format(len(self.file)))
+            self.win.Log ("1-检测完成,没有数据文件需要被转换的!\n\n".format(len(self.file)))
             self.win.FinishConverter()
             return
         if self.opt_onefile:
@@ -255,19 +255,19 @@ class ConverterThread(threading.Thread):
         self.file = [i[0] for i in conv_file_list]
         if self.opt_onefile:
             self.outfiles.append(self.file[0] + r'.asc')
-        self.win.AddLog ("1-检测完成,如下{}个数据文件将被转换:\n".format(len(self.file)))
+        self.win.Log ("1-检测完成,如下{}个数据文件将被转换:\n".format(len(self.file)))
         for f in self.file:
-            self.win.AddLog ("    {}\n".format(os.path.basename(f)))
+            self.win.Log ("    {}\n".format(os.path.basename(f)))
         sleep(3)
         #转换为ASC文件.
         i=0
         l=len(self.file)
-        self.win.AddLog ("2-开始转换CAN数据为ASC格式...\n")
+        self.win.Log ("2-开始转换CAN数据为ASC格式...\n")
         if self.opt_onefile:
             fd = ascFile(self.outfiles[0])
         for f in self.file:
             i += 1
-            self.win.AddLog ("2-({}/{})当前正在转换文件: {}\n".format(i,l,os.path.basename(f)))
+            self.win.Log ("2-({}/{})当前正在转换文件: {}\n".format(i,l,os.path.basename(f)))
             try:
                 if not self.opt_onefile:
                     fd = ascFile(f+r'.asc')
@@ -278,10 +278,10 @@ class ConverterThread(threading.Thread):
                 fs.Stop()
                 if not self.opt_onefile:
                     fd.Stop()
-                self.win.AddLog ("2-({}/{})转换结束,本次共转换CAN数据{}条!\n".format(i,l,fs._dataNum))
+                self.win.Log ("2-({}/{})转换结束,本次共转换CAN数据{}条!\n".format(i,l,fs._dataNum))
             except Exception:
-                self.win.AddLog ("2-({}/{})转换转换出错了!\n".format(i,l,os.path.basename(f)))
-        self.win.AddLog ("2-转换CAN数据完成!\n")
+                self.win.Log ("2-({}/{})转换转换出错了!\n".format(i,l,os.path.basename(f)))
+        self.win.Log ("2-转换CAN数据完成!\n")
         self.file.clear()
         try:
             fd.Stop()
@@ -292,25 +292,25 @@ class ConverterThread(threading.Thread):
             i=0
             l=len(self.outfiles)
             outfile = os.path.join(self.outDir, "out.zip")
-            self.win.AddLog ("3-开始打包成zip文件...\n")
+            self.win.Log ("3-开始打包成zip文件...\n")
             with ZipFile(outfile, "w",ZIP_DEFLATED,compresslevel=9) as fz:
                 for f in self.outfiles:
                     i += 1
-                    self.win.AddLog ("3-({}/{})当前正在打包文件: {}\n".format(i,l,os.path.basename(f)))
+                    self.win.Log ("3-({}/{})当前正在打包文件: {}\n".format(i,l,os.path.basename(f)))
                     fz.write(f, os.path.basename(f))
                     os.remove(f)
-            self.win.AddLog ("3-打包zip文件完成!\n")
+            self.win.Log ("3-打包zip文件完成!\n")
         time_end = now()
-        self.win.AddLog('\n')
-        self.win.AddLog ("全部文件转换结束,共耗时{}秒！\n".format(time_end-time_start))
-        self.win.AddLog ("输出文件如下:\n".format(time_end-time_start))
+        self.win.Log('\n')
+        self.win.Log ("全部文件转换结束,共耗时{}秒！\n".format(time_end-time_start))
+        self.win.Log ("输出文件如下:\n".format(time_end-time_start))
         if self.opt_needzip:
             outfile = os.path.join(self.outDir, "out.zip")
-            self.win.AddLog ("  {}\n".format(outfile))
+            self.win.Log ("  {}\n".format(outfile))
         else:
             for f in self.outfiles:
-                self.win.AddLog ("    {}\n".format(f))
-        self.win.AddLog('\n')
+                self.win.Log ("    {}\n".format(f))
+        self.win.Log('\n')
         self.win.FinishConverter()
 
 class MainFrame (wx.Frame):
@@ -342,7 +342,7 @@ class MainFrame (wx.Frame):
         sizer.Add(self.button,  0, wx.EXPAND|wx.ALL, 5)
         self.panel.SetSizer(sizer)
 
-    def AddLog (self,txt):
+    def Log (self,txt):
         self.text.AppendText(txt)
         
     def FinishConverter (self):
@@ -351,10 +351,10 @@ class MainFrame (wx.Frame):
 
     def OnConverterButton (self, event):
         if hasattr(self, "Conv") and self.Conv.is_alive():
-            self.AddLog("正在转换中,莫急躁!\n")
+            self.Log("正在转换中,莫急躁!\n")
             return
         if len(self.df.filelist) == 0:
-            self.AddLog("请把需要转换的数据文件,拖入此框框中!\n\n")
+            self.Log("请把需要转换的数据文件,拖入此框框中!\n\n")
             return
         self.onefile.Disable()
         self.needzip.Disable()
