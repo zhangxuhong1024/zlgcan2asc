@@ -1,6 +1,6 @@
 # !/bin/env python3
 # coding:utf8
-# MAKE BY XUHONG_20170809 
+# MAKE BY XUHONG_20210202 
 
 import wx
 import os
@@ -26,7 +26,7 @@ class Message(object):
     ID     = 0         # CAN_ID
     Tm     = 0.0       # 时间
     Len    = 0         # 数据长度
-    Data   = []        # 数据
+    Data   = [0]*8     # 数据
     Type   = 'd'       # d=数据帧  r=远程帧
     Format = ' '       # 空格=标准帧 x=扩展帧
     Dir    = 'rx'      # rx=接收  tx=发送
@@ -125,7 +125,7 @@ class zlgFile(object):
             return
         #长度
         s = l.pop(0)
-        if re.match(r"^0x[\da-fA-F]{2}$",s):
+        if re.match(r"^0x[\da-fA-F]{1,2}$",s):
             can.Len = int(s,16)
         elif re.match(r"^\d{1,2}$",s):
             can.Len = int(s)
@@ -136,7 +136,7 @@ class zlgFile(object):
         if can.Type == 'd':
             for i in range(can.Len):
                 s = l.pop(0)
-                if re.match(r'^[\da-fA-F]{2}$',s):
+                if re.match(r'^[\da-fA-F]{1,2}$',s):
                     can.Data.append(int(s,16))
                 else:
                     return
@@ -149,32 +149,96 @@ class zlgFile(object):
             self._file.close()
 
 class ascFile(object):
-    def __init__ (self,f):
+    def __init__ (self,f,mode):
+        if mode != 'r' and mode != 'w':
+            raise Exception("ASC文件只允许以r或者w模式打开文件!")
+        self._Mode  = mode
         self._dataNum = 0
         self._lastTimeStamp = 0.0
-        self._file = open(f,'w')
-        tm = localtime()
-        #星期月份上下午,通过strftime获取时会变成中文.故另行用字典获取.
-        s_tm_mon = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',\
-                6:'Jun',7:'Jul',8:'Aug',9:'Sept',10:'Oct',\
-                11:'Nov',12:'Dec'}.get(tm.tm_mon)
-        s_tm_wday = {0:'Mon',1:'Tues',2:'Wed',3:'Thur',4:'Fri',\
-                5:'Sat',6:'Sun'}.get(tm.tm_wday)
-        s_tm_ampm = {0:'AM',1:'PM'}.get(0 if tm.tm_hour<13 else 1)
-        s = "date {wday} {mon} %m %I:%M:%S {ampm} %Y\nbase hex timestamps absolute\n"
-        s = strftime(s, tm)
-        s = s.format(wday=s_tm_wday,mon=s_tm_mon,ampm=s_tm_ampm)
-        self._file.write(s)
-        self._file.flush()
+        self._file = open(f,mode)
+        self.lastIndex = 0
+        self._Heat = ''
+        if self._Mode=='w':
+            tm = localtime()
+            #星期月份上下午,通过strftime获取时会变成中文.故另行用字典获取.
+            s_tm_mon = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',\
+                    6:'Jun',7:'Jul',8:'Aug',9:'Sept',10:'Oct',\
+                    11:'Nov',12:'Dec'}.get(tm.tm_mon)
+            s_tm_wday = {0:'Mon',1:'Tues',2:'Wed',3:'Thur',4:'Fri',\
+                    5:'Sat',6:'Sun'}.get(tm.tm_wday)
+            s_tm_ampm = {0:'AM',1:'PM'}.get(0 if tm.tm_hour<13 else 1)
+            s = "date {wday} {mon} %m %I:%M:%S {ampm} %Y\nbase hex timestamps absolute\n"
+            s = strftime(s, tm)
+            self._Heat = s.format(wday=s_tm_wday,mon=s_tm_mon,ampm=s_tm_ampm)
+            self._file.write(self._Heat)
+            self._file.flush()
+        else:
+            pass
 
     def __del__ (self):
         if not self._file.closed:
             self._file.close()
 
-    def AddMessage (self, msg):
+    def __iter__(self):
+        if self._Mode=='r':
+            return self
+        else:
+            raise Exception("文件不能被读取!")
+ 
+    def __next__(self):
+        msg = self.GetMessage()
+        if msg == None:
+            raise StopIteration
+        return msg
+
+    def GetMessage (self):
         if self._file.closed:
             return
-        if not type(msg) == type(Message()):
+        r1 = r'(\d+(?:\.\d+)?)\s+(\d)\s+([\da-fA-F]{1,8})(x?)\s+((?:rx)|(?:tx))\s+(D|d)\s+(\d)\s+(.+)'
+        r2 = r'(\d+(?:\.\d+)?)\s+(\d)\s+([\da-fA-F]{1,8})(x?)\s+((?:rx)|(?:tx))\s+(R|r)'
+        g = None
+        for i in range(1000):
+            ft = self._file.tell()
+            s = self._file.readline()
+            if self._file.tell()-ft==0:
+                return
+            s = re.sub(r"\b[Rr][Xx]\b","rx",s)
+            s = re.sub(r"\b[Tt][Xx]\b","tx",s)
+            g = re.match(r1,s)
+            if g: break
+            g = re.match(r2,s)
+            if g: break 
+        else:
+            return
+        can = Message()
+        can.Tm     = float(g.group(1))
+        can.Chx    = int(g.group(2))
+        can.ID     = int(g.group(3),16)
+        can.Format = 'x' if g.group(4)=='x' else ' '
+        can.Dir    = g.group(5).lower()
+        can.Type   = g.group(6).lower()
+        can.Data = []
+        if can.Type=='d':
+            can.Len        = int(g.group(7),16)
+            s = re.sub(r"[\s,]+",",",g.group(8))
+            l = s.split(",")
+            for i in range(can.Len):
+                d = l.pop(0)
+                if re.match(r'^[\da-fA-F]{1,2}$',d):
+                    can.Data.append(int(d,16))
+                else:
+                    return
+        can.Completed = True 
+        self.lastIndex = can.Tm
+        self._dataNum += 1
+        return can
+
+    def AddMessage (self, msg):
+        if self._Mode!='w':
+            raise Exception("文件不能被写入!")
+        if self._file.closed:
+            return
+        if not isinstance(msg,Message):
             return
         if msg.Tm <= self._lastTimeStamp:
             msg.Tm = self._lastTimeStamp+0.000001
@@ -188,9 +252,10 @@ class ascFile(object):
         self._lastTimeStamp = msg.Tm
         self._dataNum += 1
 
-    def Stop (self):
-        self._file.write("End Triggerblock ")
-        self._file.flush()
+    def Stop(self):
+        if self._Mode=='w':
+            self._file.write("End Triggerblock ")
+            self._file.flush()
         if not self._file.closed:
             self._file.close()
 
@@ -203,7 +268,8 @@ class MyFileDropTarget(wx.FileDropTarget):#声明释放到的目标
         self.win.Log("{}个文件被拖放到此处:\n".format(len(filenames), x, y))
         for f in filenames:
             if f not in self.filelist:
-                if os.path.isfile(f) and re.match(r"(^.+\.csv$)|(^.+\.txt$)|(^.+\.CSV$)|(^.+\.TXT$)",f):
+                s = r"(^.+\.csv$)|(^.+\.txt$)|(^.+\.asc$)|(^.+\.CSV$)|(^.+\.TXT$)|(^.+\.ASC$)"
+                if os.path.isfile(f) and re.match(s,f):
                     self.win.Log("  新添加: {}\n".format(f))
                     self.filelist.append(f)
                 else:
@@ -221,29 +287,51 @@ class ConverterThread(threading.Thread):
         self.opt_onefile= opt_onefile
         self.opt_needzip= opt_needzip
         self.file       = [i for i in filelist]
-        self.infiles = []
-        self.outfiles = []
         self.outDir     = os.path.dirname(self.file[0])
+        self.outfiles   = []
 
     def run(self):
         time_start = now()
         conv_file_list = []
         #检查文件是否正确读取,并确定转换文件的先后顺序.
         self.win.Log ("1-检测文件是否正确...\n")
+        _has_txtcsv = False
+        _has_asc    = False
         for f in self.file:
+            if f.lower().strip().endswith('asc'):
+                _has_asc = True
+            if f.lower().strip().endswith('txt'):
+                _has_txtcsv = True
+            if f.lower().strip().endswith('csv'):
+                _has_txtcsv = True
             if self.outDir != os.path.dirname(f):
-                s = "    不允许存在多个目录的数据,请重新选择数据文件!\n"
+                s = "    多个目录的数据一起转换,这会让人很抓狂的,请重新选择数据文件!\n"
                 self.win.Log (s)
                 self.win.Log ("1-检测发现异常,退出转换!\n\n")
                 self.win.FinishConverter()
                 return
+            if _has_txtcsv and _has_asc:
+                s = "    不允许asc文件混着别的数据文件一起拖进来,请重新选择数据文件!\n"
+                self.win.Log (s)
+                self.win.Log ("1-检测发现异常,退出转换!\n\n")
+                self.win.FinishConverter()
+                return
+        if  _has_asc and self.opt_onefile==0 and self.opt_needzip==0:
+            s = "    asc文件拖进来,又啥都不做,这是消遣我呢?\n"
+            self.win.Log (s)
+            self.win.Log ("1-滚犊子吧,不陪你玩了!\n\n")
+            self.win.FinishConverter()
+            return
         for f in self.file:
             try:
-                zlg = zlgFile(f)
-                if zlg.GetMessage() == None:
+                if _has_asc:
+                    data = ascFile(f,'r')
+                else:
+                    data = zlgFile(f)
+                if data.GetMessage() == None:
                     raise Exception("数据读不了")
-                zlg.Stop()
-                conv_file_list.append((f,zlg.lastIndex))
+                data.Stop()
+                conv_file_list.append((f,data.lastIndex))
             except Exception:
                 self.win.Log ("    文件有误: {}\n".format(os.path.basename(f)))
         if len(conv_file_list) == 0:
@@ -251,6 +339,12 @@ class ConverterThread(threading.Thread):
             self.win.FinishConverter()
             return
         if self.opt_onefile:
+            if len(conv_file_list)==1:
+                s = "    才1个文件,合并不了!\n"
+                self.win.Log (s)
+                self.win.Log ("1-检测发现异常,退出转换!\n\n")
+                self.win.FinishConverter()
+                return
             conv_file_list.sort(key=lambda x:x[1])
         self.file = [i[0] for i in conv_file_list]
         if self.opt_onefile:
@@ -264,15 +358,18 @@ class ConverterThread(threading.Thread):
         l=len(self.file)
         self.win.Log ("2-开始转换CAN数据为ASC格式...\n")
         if self.opt_onefile:
-            fd = ascFile(self.outfiles[0])
+            fd = ascFile(self.outfiles[0],'w')
         for f in self.file:
             i += 1
             self.win.Log ("2-({}/{})当前正在转换文件: {}\n".format(i,l,os.path.basename(f)))
             try:
                 if not self.opt_onefile:
-                    fd = ascFile(f+r'.asc')
+                    fd = ascFile(f+r'.asc','w')
                     self.outfiles.append(f + r'.asc')
-                fs = zlgFile(f)
+                if _has_asc:
+                    fs = ascFile(f,'r')
+                else:
+                    fs = zlgFile(f)
                 for msg in fs:
                     fd.AddMessage(msg)
                 fs.Stop()
@@ -302,7 +399,7 @@ class ConverterThread(threading.Thread):
             self.win.Log ("3-打包zip文件完成!\n")
         time_end = now()
         self.win.Log('\n')
-        self.win.Log ("全部文件转换结束,共耗时{}秒！\n".format(time_end-time_start))
+        self.win.Log ("全部文件转换结束,共耗时{tm:.8f}秒！\n".format(tm=time_end-time_start))
         self.win.Log ("输出文件如下:\n".format(time_end-time_start))
         if self.opt_needzip:
             outfile = os.path.join(self.outDir, "out.zip")
@@ -320,7 +417,7 @@ class MainFrame (wx.Frame):
         self.SetMinSize((600,400))
         str_zlg2ascVer = "当前zlgcan2asc脚本版本为：" + __version__ 
         self.label = wx.StaticText(self.panel, -1, str_zlg2ascVer)
-        s = "请把需要转换的CSV数据文件或者TXT数据文件,拖入此框框中,\n"
+        s = "请把需要转换的数据文件(csv/txt/asc),拖入此框框中,\n"
         s += "然后点击“开始转换”按钮!\n\n" 
         self.text = wx.TextCtrl(self.panel, -1, s, style=wx.TE_MULTILINE|wx.HSCROLL)
         self.df = MyFileDropTarget(self)#将文本控件作为释放到的目标
@@ -370,30 +467,3 @@ if __name__ == "__main__":
     frame = MainFrame()
     frame.Show()
     app.MainLoop()
-
-# 命令行,不带GUI那种.
-# if __name__ == "__main__":
-#     str_zlg2ascVer = "当前zlgcan2asc脚本版本为：" + __version__ 
-#     print (str_zlg2ascVer)
-#     time_start = now()
-#     filelist = []
-#     for f in os.listdir('.'):
-#         if os.path.isfile(f) and re.match(r"(^.+\.csv$)|(^.+\.txt$)|(^.+\.CSV$)|(^.+\.TXT$)",f): 
-#             filelist.append(f)
-#     print ("当前目录下CSV文件和TXT文件，共查找到{}个！".format(len(filelist)))
-#     for f in filelist:
-#         print ("正在从文件{}转换CAN数据到文件{}中...".format(f,f+r'.asc'))
-#         try:
-#             fs = zlgFile(f)
-#             fd = ascFile(f+r+'.asc')
-#             for msg in fs:
-#                 fd.AddMessage(msg)
-#             fs.Stop()
-#             fd.Stop()
-#             print ("转换结束，本次共转换CAN数据{}条！".format(fd._dataNum))
-#         except Exception:
-#             print ("转换转换出错了！")
-#     time_end = now()
-#     print ("全部文件转换结束，共耗时{}秒！".format(time_end-time_start))
-#     print ("请点击关闭按键关闭窗口，或30秒后自动退出！")
-#     sleep(30)
